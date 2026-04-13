@@ -313,7 +313,11 @@ fn register_inner<T: Vfs>(
     }
 
     let io_methods = ffi::sqlite3_io_methods {
-        iVersion: 3,
+        // iVersion 2 = SHM methods (xShmMap, xShmLock, xShmBarrier, xShmUnmap)
+        // iVersion 3 = mmap methods (xFetch, xUnfetch) -- only safe when implemented
+        // Using 2 because xFetch/xUnfetch are None. Setting iVersion=3 with null
+        // xFetch causes SEGFAULT when SQLite tries to memory-map pages.
+        iVersion: 2,
         xClose: Some(x_close::<T>),
         xRead: Some(x_read::<T>),
         xWrite: Some(x_write::<T>),
