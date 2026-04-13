@@ -490,8 +490,6 @@ unsafe extern "C" fn x_close<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_int {
         let (vfs, handle) = unsafe {
             // verify p_file is not null and get a mutable reference
             let p_file_ref = p_file.as_mut().ok_or(vars::SQLITE_INTERNAL)?;
-            // set pMethods to null, signaling to SQLite that the file is closed
-            p_file_ref.pMethods = core::ptr::null();
 
             // extract a copy of the FileWrapper
             let file = core::ptr::read(p_file.cast::<FileWrapper<T::Handle>>());
@@ -500,6 +498,19 @@ unsafe extern "C" fn x_close<T: Vfs>(p_file: *mut ffi::sqlite3_file) -> c_int {
 
         let vfs = unwrap_vfs!(vfs, T)?;
         vfs.close(handle)?;
+
+        // Set pMethods to null AFTER vfs.close() completes (after handle is
+        // dropped and all cleanup is done). Setting it before close() creates
+        // a window where concurrent connections doing WAL checkpoint can see
+        // null pMethods if SQLite reuses the file descriptor allocation.
+        // Note: SQLite frees the p_file allocation after xClose returns,
+        // so this null is only visible briefly, but it signals to SQLite
+        // that the file is closed if it checks.
+        unsafe {
+            if let Some(p_file_ref) = p_file.as_mut() {
+                p_file_ref.pMethods = core::ptr::null();
+            }
+        }
         Ok(vars::SQLITE_OK)
     })
 }
